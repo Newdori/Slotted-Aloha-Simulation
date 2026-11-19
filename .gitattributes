@@ -1,0 +1,2 @@
+# Keep the LF line endings the sources are written with.
+* text=auto eol=lf

@@ -1,0 +1,11 @@
+# Build outputs: Build.ps1 recreates them.
+/build/*
+!/build/verify/
+
+# Verification programs keep their sources and scripts; their outputs are regenerated.
+/build/verify/*.exe
+/build/verify/*.txt
+/build/verify/*.xlsx
+
+# Distribution archives: Build.ps1 recreates them.
+/excute/
