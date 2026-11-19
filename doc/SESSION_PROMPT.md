@@ -134,7 +134,7 @@ Alert와 LB는 서로 독립된 경쟁 영역이다. 단말 수 N은 실제 단�
 
 ## 6. 빌드와 검증
 
-프로젝트 루트의 PowerShell에서 `.\Build.ps1`을 실행한다. 출력은 `build/SlottedAlohaSimulation.exe`와 `excute`의 두 ZIP이다. 빌드된 EXE가 실행 중이면 종료 후 재빌드한다. 소스 ZIP은 `src`, `doc`, `Build.ps1`만 포함한다.
+프로젝트 루트의 PowerShell에서 `.\Build.ps1`을 실행한다. 링크 옵션 `-Wl,--no-insert-timestamp`로 PE 헤더의 빌드 시각을 0으로 고정해, 같은 GCC(현재 MinGW-Builds 15.2.0 x86_64-posix-seh)에서는 빌드 결과가 바이트 단위로 같다(2026-11-19 GitHub에서 새로 받은 폴더와 로컬 빌드의 SHA-256 일치 확인). 출력은 `build/SlottedAlohaSimulation.exe`와 `excute`의 두 ZIP이다. 빌드된 EXE가 실행 중이면 종료 후 재빌드한다. 소스 ZIP은 `src`, `doc`, `Build.ps1`만 포함한다.
 
 1.2.0.0과 1.3.0.0에서 `build/verify`의 임시 프로그램(`Run.ps1 -Report`, `CheckXlsx.ps1`)으로 다음을 확인했다(영구 자동 테스트 스위트로 가정하지 않는다).
 

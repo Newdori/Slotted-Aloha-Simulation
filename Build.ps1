@@ -41,7 +41,9 @@ try {
         (Join-Path $SourceDir 'Simulation.c'), (Join-Path $SourceDir 'Group.c'),
         (Join-Path $SourceDir 'GroupDialog.c'), (Join-Path $SourceDir 'Report.c'),
         $ResourcePath, '-o', $BuildPath,
-        '-lgdi32', '-luser32', '-lcomdlg32', '-lcomctl32'
+        '-lgdi32', '-luser32', '-lcomdlg32', '-lcomctl32',
+        # No build time in the PE header, so the same compiler produces the same bytes on every build.
+        '-Wl,--no-insert-timestamp'
     )
     & $CompilerPath @CompilerArguments
     if ($LASTEXITCODE -ne 0) {

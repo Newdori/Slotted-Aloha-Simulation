@@ -107,7 +107,7 @@ Windows에서 x64 MinGW-w64의 `gcc.exe`와 `windres.exe`를 PATH에서 사용�
 .\Build.ps1
 ```
 
-현재 실행 중인 `build/SlottedAlohaSimulation.exe`는 빌드 전에 종료합니다. 실행 파일과 중간 산출물은 `build`, 배포 압축파일은 `excute`에 생성됩니다. 스크립트가 필요한 출력 폴더를 자동으로 만듭니다. 배포 폴더만 변경하려면 `-DistributionDir 'excute\custom'`을 사용할 수 있습니다. 상대 경로는 프로젝트 루트를 기준으로 해석합니다.
+현재 실행 중인 `build/SlottedAlohaSimulation.exe`는 빌드 전에 종료합니다. 링커가 실행 파일에 빌드 시각을 기록하지 않도록 설정했으므로(`-Wl,--no-insert-timestamp`), 같은 버전의 GCC를 쓰면 어느 PC·폴더에서 몇 번을 빌드해도 바이트 단위로 같은 EXE가 생성됩니다. GCC 버전이 다르면 동작은 같아도 EXE 내용은 달라질 수 있고, `-Werror` 때문에 새 경고로 빌드가 멈출 수 있습니다. 실행 파일과 중간 산출물은 `build`, 배포 압축파일은 `excute`에 생성됩니다. 스크립트가 필요한 출력 폴더를 자동으로 만듭니다. 배포 폴더만 변경하려면 `-DistributionDir 'excute\custom'`을 사용할 수 있습니다. 상대 경로는 프로젝트 루트를 기준으로 해석합니다.
 
 ## 프로젝트 구조
 
