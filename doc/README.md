@@ -1,6 +1,6 @@
 # Slotted Aloha 채널 경쟁 상황 시뮬레이션
 
-Windows x64용 프로그램입니다. `excute/SlottedAlohaSimulation-Windows-x64.zip`을 풀고 `SlottedAlohaSimulation.exe`를 실행합니다. 실행할 PC에는 컴파일러나 Excel을 설치할 필요가 없습니다.
+Windows x64용 프로그램입니다. `excute/SlottedAlohaSimulation-Windows-x64.zip`을 풀고 `SlottedAlohaSimulation.exe`를 실행합니다. 실행할 PC에는 컴파일러나 Excel을 설치할 필요가 없습니다. EXE는 Windows 기본 DLL만 사용하므로 `build/SlottedAlohaSimulation.exe` 하나만 복사해도 실행됩니다. 창은 화면 작업 영역 안에서 열리고 최소 980×560(배율 100% 기준)까지 줄일 수 있습니다. 결과 탭과 그룹 설정 창은 창이 낮으면 세로 스크롤 막대가 생겨, 1366×768 화면이나 배율 150% 노트북에서도 모든 내용을 볼 수 있습니다.
 
 현재 버전은 **1.5.0.0**입니다. 1.2.0.0에서 그룹별 슬롯 배정과 그룹 미적용 비교를 추가했고, 1.3.0.0에서 그룹 설정 창·결과 화면·Excel 파일을 다듬었으며, 1.4.0.0에서 반복 실행 평균을, 1.5.0.0에서 단말 수 비례 슬롯 배정을 추가했습니다. 설계는 [설계 문서](DESIGN.md)에 있습니다. 이 문서가 실행용 ZIP에 들어 있는 경우 설계·소스 문서는 별도 소스 ZIP에 있습니다.
 

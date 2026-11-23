@@ -167,6 +167,7 @@ static int32_t ScaleLayout(const Application_t *pApp, int32_t iValue)
 }
 
 static void LayoutResultControls(const Application_t *pApp);
+static void ScrollResultPage(const Application_t *pApp, UINT uiMessage, WPARAM MessageParameter);
 static bool HandleSplitterMessage(Application_t *pApp, HWND Window, UINT uiMessage, LPARAM MessageData);
 
 static void SetFormattedText(HWND Control, const wchar_t *pcFormat, ...)
@@ -998,7 +999,9 @@ static void DrawSettingsPanel(const Application_t *pApp, const DRAWITEMSTRUCT *p
     const wchar_t *const aapcLabels[3][3] = {
         { L"심볼레이트", L"Wave ID", L"시간 슬롯" }, { L"슈퍼프레임 주기", L"시뮬레이션 시간", L"수신 회차" }, { L"단말 수", L"그룹 수", L"반복 횟수" }
     };
-    const int32_t aiWeights[3] = { 30, 40, 30 };
+    int32_t aiWidths[3] = { 0 };
+    int32_t aiLabelWidths[3] = { 0 };
+    int32_t iNeeded = 0;
     wchar_t aaacValues[3][3][40] = { { { 0 } } };
     HDC Target = pDraw->hDC;
     RECT Bounds = pDraw->rcItem;
@@ -1047,9 +1050,19 @@ static void DrawSettingsPanel(const Application_t *pApp, const DRAWITEMSTRUCT *p
 
     SetBkMode(Target, TRANSPARENT);
     PreviousFont = SelectObject(Target, pApp->View.Font);
+    /* Each column gets its label and value width; spare width is shared equally, a shortage proportionally. */
     for (int32_t iSection = 0; iSection < 3; iSection++) {
-        int32_t iWidth = iInner * aiWeights[iSection] / 100;
-        int32_t iLabelWidth = MeasureWidestText(Target, aapcLabels[iSection], 3) + ScaleLayout(pApp, 12);
+        const wchar_t *const apcValues[3] = { aaacValues[iSection][0], aaacValues[iSection][1], aaacValues[iSection][2] };
+        aiLabelWidths[iSection] = MeasureWidestText(Target, aapcLabels[iSection], 3) + ScaleLayout(pApp, 12);
+        aiWidths[iSection] = aiLabelWidths[iSection] + MeasureWidestText(Target, apcValues, 3) + ScaleLayout(pApp, 20);
+        iNeeded += aiWidths[iSection];
+    }
+    for (int32_t iSection = 0; iSection < 3; iSection++) {
+        aiWidths[iSection] = (iNeeded <= iInner) ? aiWidths[iSection] + (iInner - iNeeded) / 3 : aiWidths[iSection] * iInner / iNeeded;
+    }
+    for (int32_t iSection = 0; iSection < 3; iSection++) {
+        int32_t iWidth = aiWidths[iSection];
+        int32_t iLabelWidth = aiLabelWidths[iSection];
 
         for (int32_t iItem = 0; iItem < 3; iItem++) {
             RECT Cell = { iLeft, iTop + iItem * iRow, iLeft + iWidth - ScaleLayout(pApp, 8), iTop + (iItem + 1) * iRow };
@@ -1636,8 +1649,12 @@ static LRESULT CALLBACK HandlePageMessage(HWND Window, UINT uiMessage, WPARAM Me
     if ((WM_COMMAND == uiMessage) || (WM_CTLCOLORSTATIC == uiMessage) || (WM_NOTIFY == uiMessage) || (WM_DRAWITEM == uiMessage)) {
         return SendMessageW(GetParent(Window), uiMessage, MessageParameter, MessageData);
     }
-    /* Only the result content page has the application pointer; it owns the table splitter. */
-    if ((NULL != pApp) && HandleSplitterMessage(pApp, Window, uiMessage, MessageData)) {
+    /* Only the result pages have the application pointer: the outer page scrolls, the content page owns the table splitter. */
+    if ((NULL != pApp) && (Window == pApp->ResultPage) && ((WM_VSCROLL == uiMessage) || (WM_MOUSEWHEEL == uiMessage))) {
+        ScrollResultPage(pApp, uiMessage, MessageParameter);
+        return 0;
+    }
+    if ((NULL != pApp) && (Window == pApp->ResultContent) && HandleSplitterMessage(pApp, Window, uiMessage, MessageData)) {
         return (WM_SETCURSOR == uiMessage) ? TRUE : 0;
     }
     return DefWindowProcW(Window, uiMessage, MessageParameter, MessageData);
@@ -1657,9 +1674,9 @@ static bool RegisterPageClass(HINSTANCE Instance)
     return (FALSE != InitCommonControlsEx(&Controls)) && (0 != RegisterClassW(&Class));
 }
 
-static HWND CreatePage(HWND Parent, const Application_t *pApp)
+static HWND CreatePage(HWND Parent, const Application_t *pApp, DWORD uiExtraStyle)
 {
-    return CreateWindowExW(WS_EX_CONTROLPARENT, gacPageClass, L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS,
+    return CreateWindowExW(WS_EX_CONTROLPARENT, gacPageClass, L"", WS_CHILD | WS_CLIPCHILDREN | WS_CLIPSIBLINGS | uiExtraStyle,
         0, 0, 1, 1, Parent, NULL, pApp->Instance, NULL);
 }
 
@@ -1813,15 +1830,16 @@ static bool CreateControls(HWND Window, Application_t *pApp)
         return false;
     }
     TabCtrl_SetItemSize(pApp->Tabs, ScaleLayout(pApp, 120), ScaleLayout(pApp, 34));
-    pApp->SimulationPage = CreatePage(Window, pApp);
-    pApp->ResultPage = CreatePage(Window, pApp);
+    pApp->SimulationPage = CreatePage(Window, pApp, 0);
+    pApp->ResultPage = CreatePage(Window, pApp, WS_VSCROLL);
     if ((NULL == pApp->SimulationPage) || (NULL == pApp->ResultPage)) {
         return false;
     }
-    pApp->ResultContent = CreatePage(pApp->ResultPage, pApp);
+    pApp->ResultContent = CreatePage(pApp->ResultPage, pApp, 0);
     if (NULL == pApp->ResultContent) {
         return false;
     }
+    SetWindowLongPtrW(pApp->ResultPage, GWLP_USERDATA, (LONG_PTR)pApp);
     SetWindowLongPtrW(pApp->ResultContent, GWLP_USERDATA, (LONG_PTR)pApp);
     return CreateSimulationControls(pApp) && CreateResultControls(pApp) && (0 != SetTimer(Window, 1, 100, NULL));
 }
@@ -1934,6 +1952,38 @@ static void FitGroupTableColumns(const Application_t *pApp, int32_t iAvailable)
     }
 }
 
+/* The result layout needs this height; a shorter result tab scrolls instead of squeezing the chart. */
+static int32_t GetResultMinimumHeight(const Application_t *pApp)
+{
+    return (NULL == pApp->View.pResult) ? 0 : ScaleLayout(pApp, 700);
+}
+
+/* Result controls are laid out on the content page, which is at least the minimum height and scrolls inside the tab. */
+static void GetResultContentRect(const Application_t *pApp, RECT *pClient)
+{
+    int32_t iMinimum = GetResultMinimumHeight(pApp);
+
+    GetClientRect(pApp->ResultPage, pClient);
+    if (pClient->bottom < iMinimum) {
+        pClient->bottom = iMinimum;
+    }
+}
+
+/* The scroll bar appears only when the tab is shorter than the layout; the system keeps the position in range. */
+static void UpdateResultScroll(const Application_t *pApp, const RECT *pVisible)
+{
+    int32_t iMinimum = GetResultMinimumHeight(pApp);
+    SCROLLINFO Scroll = {
+        .cbSize = sizeof(Scroll),
+        .fMask = SIF_RANGE | SIF_PAGE,
+        .nMin = 0,
+        .nMax = ((pVisible->bottom < iMinimum) ? iMinimum : pVisible->bottom) - 1,
+        .nPage = (uint32_t)pVisible->bottom
+    };
+
+    SetScrollInfo(pApp->ResultPage, SB_VERT, &Scroll, TRUE);
+}
+
 static void CalculateResultLayout(const Application_t *pApp, ResultLayout_t *pLayout)
 {
     RECT Client;
@@ -1942,7 +1992,7 @@ static void CalculateResultLayout(const Application_t *pApp, ResultLayout_t *pLa
     int32_t iChartTop = ScaleLayout(pApp, 259);
     int32_t iFixed = ScaleLayout(pApp, 120);
 
-    GetClientRect(pApp->ResultPage, &Client);
+    GetResultContentRect(pApp, &Client);
     *pLayout = (ResultLayout_t){ .iTableHeight = ScaleLayout(pApp, 90) };
     if (bGrouped && (TableCompare == pApp->Table)) {
         pLayout->iTableHeight = ScaleLayout(pApp, 112);
@@ -1987,13 +2037,18 @@ static void LayoutResultControls(const Application_t *pApp)
     int32_t iRoundWidth = ScaleLayout(pApp, 106);
     int32_t iJumpWidth = ScaleLayout(pApp, 96);
     int32_t iModeWidth = ScaleLayout(pApp, 130);
+    RECT Visible;
+    int32_t iScroll;
     int32_t iTableTop;
     int32_t iWidth;
     int32_t iColumnWidth;
     int32_t iRightWidth;
     int32_t iLeft;
 
-    GetClientRect(pApp->ResultPage, &Client);
+    GetClientRect(pApp->ResultPage, &Visible);
+    UpdateResultScroll(pApp, &Visible);
+    GetResultContentRect(pApp, &Client);
+    iScroll = GetScrollPos(pApp->ResultPage, SB_VERT);
     CalculateResultLayout(pApp, &Layout);
     iWidth = Client.right - 2 * iMargin;
     iColumnWidth = (iWidth - iGap) * 65 / 100;
@@ -2001,21 +2056,21 @@ static void LayoutResultControls(const Application_t *pApp)
     iTableTop = Layout.iStatistics + ScaleLayout(pApp, 30);
 
     /* Controls are moved without copying old pixels; one repaint at the end avoids stale fragments. */
-    MoveWindow(pApp->EmptyResult, iMargin, Client.bottom / 2 - iLabelHeight / 2, iWidth, iLabelHeight, FALSE);
-    MoveWindow(pApp->ResultContent, 0, 0, Client.right, Client.bottom, FALSE);
+    MoveWindow(pApp->EmptyResult, iMargin, Visible.bottom / 2 - iLabelHeight / 2, iWidth, iLabelHeight, FALSE);
+    MoveWindow(pApp->ResultContent, 0, -iScroll, Client.right, Client.bottom, FALSE);
     MoveWindow(pApp->ResultMetadata, iMargin, ScaleLayout(pApp, 15), iColumnWidth, iLabelHeight, FALSE);
     MoveWindow(pApp->SettingsPanel, iMargin, ScaleLayout(pApp, 43), iColumnWidth, ScaleLayout(pApp, 160), FALSE);
     iLeft = iMargin + iColumnWidth + iGap;
     MoveWindow(pApp->TerminalSummary, iLeft, ScaleLayout(pApp, 15), iRightWidth, iLabelHeight, FALSE);
     MoveWindow(pApp->FailureTable, iLeft, ScaleLayout(pApp, 43), iRightWidth, ScaleLayout(pApp, 90), FALSE);
     ListView_SetColumnWidth(pApp->FailureTable, FailureHidden, 0);
-    ListView_SetColumnWidth(pApp->FailureTable, FailureType, ScaleLayout(pApp, 96));
+    ListView_SetColumnWidth(pApp->FailureTable, FailureType, ScaleLayout(pApp, 82));
     if (bGrouped) {
-        ListView_SetColumnWidth(pApp->FailureTable, FailureGrouped, (iRightWidth - ScaleLayout(pApp, 101)) / 2);
-        ListView_SetColumnWidth(pApp->FailureTable, FailureBaseline, (iRightWidth - ScaleLayout(pApp, 101)) / 2);
+        ListView_SetColumnWidth(pApp->FailureTable, FailureGrouped, (iRightWidth - ScaleLayout(pApp, 87)) / 2);
+        ListView_SetColumnWidth(pApp->FailureTable, FailureBaseline, (iRightWidth - ScaleLayout(pApp, 87)) / 2);
     }
     else {
-        ListView_SetColumnWidth(pApp->FailureTable, FailureGrouped, iRightWidth - ScaleLayout(pApp, 101));
+        ListView_SetColumnWidth(pApp->FailureTable, FailureGrouped, iRightWidth - ScaleLayout(pApp, 87));
         ListView_SetColumnWidth(pApp->FailureTable, FailureBaseline, 0);
     }
     MoveWindow(pApp->FailureNote, iLeft, ScaleLayout(pApp, 139), iRightWidth, ScaleLayout(pApp, 64), FALSE);
@@ -2062,6 +2117,62 @@ static void LayoutResultControls(const Application_t *pApp)
         ListView_SetColumnWidth(pApp->CompareTable, iColumn, (iWidth - ScaleLayout(pApp, 5)) * aiWeights[iColumn] / 100);
     }
     RedrawWindow(pApp->ResultPage, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
+static void ScrollResultPage(const Application_t *pApp, UINT uiMessage, WPARAM MessageParameter)
+{
+    SCROLLINFO Scroll = { .cbSize = sizeof(Scroll), .fMask = SIF_ALL };
+    int32_t iLine = ScaleLayout(pApp, 40);
+    int32_t iPosition;
+
+    if (FALSE == GetScrollInfo(pApp->ResultPage, SB_VERT, &Scroll)) {
+        return;
+    }
+    iPosition = Scroll.nPos;
+    if (WM_MOUSEWHEEL == uiMessage) {
+        iPosition -= GET_WHEEL_DELTA_WPARAM(MessageParameter) * 3 * iLine / WHEEL_DELTA;
+    }
+    else {
+        switch (LOWORD(MessageParameter)) {
+        case SB_LINEUP:
+            iPosition -= iLine;
+            break;
+
+        case SB_LINEDOWN:
+            iPosition += iLine;
+            break;
+
+        case SB_PAGEUP:
+            iPosition -= (int32_t)Scroll.nPage;
+            break;
+
+        case SB_PAGEDOWN:
+            iPosition += (int32_t)Scroll.nPage;
+            break;
+
+        case SB_TOP:
+            iPosition = Scroll.nMin;
+            break;
+
+        case SB_BOTTOM:
+            iPosition = Scroll.nMax;
+            break;
+
+        case SB_THUMBTRACK:
+        case SB_THUMBPOSITION:
+            iPosition = Scroll.nTrackPos;
+            break;
+
+        default:
+            break;
+        }
+    }
+    if (iPosition != Scroll.nPos) {
+        Scroll.fMask = SIF_POS;
+        Scroll.nPos = iPosition;
+        SetScrollInfo(pApp->ResultPage, SB_VERT, &Scroll, TRUE);
+        LayoutResultControls(pApp);
+    }
 }
 
 static void DrawSplitter(const Application_t *pApp, HWND Window)
@@ -2128,7 +2239,7 @@ static bool HandleSplitterMessage(Application_t *pApp, HWND Window, UINT uiMessa
         RECT Client;
         int32_t iHeight;
 
-        GetClientRect(pApp->ResultPage, &Client);
+        GetResultContentRect(pApp, &Client);
         /* Splitter.top = Client.bottom - table height - 50 - 16 in layout units. */
         iHeight = Client.bottom - ScaleLayout(pApp, 66) - (Point.y - pApp->iSplitterGrab);
         iHeight = (iHeight < Layout.iMinimumTable) ? Layout.iMinimumTable : ((iHeight > Layout.iMaximumTable) ? Layout.iMaximumTable : iHeight);
@@ -2357,7 +2468,7 @@ static LRESULT CALLBACK HandleWindowMessage(HWND Window, UINT uiMessage, WPARAM 
         {
             MINMAXINFO *pLimits = (MINMAXINFO *)MessageData;
             pLimits->ptMinTrackSize.x = ScaleLayout(pApp, 980);
-            pLimits->ptMinTrackSize.y = ScaleLayout(pApp, 800);
+            pLimits->ptMinTrackSize.y = ScaleLayout(pApp, 560);
         }
         return 0;
 
@@ -2464,7 +2575,10 @@ int32_t WINAPI wWinMain(HINSTANCE Instance, HINSTANCE PreviousInstance, PWSTR pc
     HWND Window = NULL;
     HDC Screen = GetDC(NULL);
     MSG Message = { 0 };
+    RECT Work = { 0, 0, 1280, 720 };
     int32_t iResult = 1;
+    int32_t iWidth;
+    int32_t iHeight;
 
     (void)PreviousInstance;
     (void)pcArguments;
@@ -2481,10 +2595,17 @@ int32_t WINAPI wWinMain(HINSTANCE Instance, HINSTANCE PreviousInstance, PWSTR pc
     App.TableFont = CreateFontW(-ScaleLayout(&App, 15), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Malgun Gothic");
     App.TableBoldFont = CreateFontW(-ScaleLayout(&App, 15), 0, 0, 0, FW_BOLD, FALSE, FALSE, FALSE, DEFAULT_CHARSET, 0, 0, CLEARTYPE_QUALITY, 0, L"Malgun Gothic");
     App.PreviewView = App.View;
+    /* Open inside the work area of the primary screen, even on small or highly scaled displays. */
+    SystemParametersInfoW(SPI_GETWORKAREA, 0, &Work, 0);
+    iWidth = ScaleLayout(&App, 1160);
+    iHeight = ScaleLayout(&App, 880);
+    iWidth = (iWidth > Work.right - Work.left) ? Work.right - Work.left : iWidth;
+    iHeight = (iHeight > Work.bottom - Work.top) ? Work.bottom - Work.top : iHeight;
     if ((NULL != App.View.Font) && (NULL != App.View.BoldFont) && (NULL != App.TableFont) && (NULL != App.TableBoldFont) &&
         (0 != RegisterClassW(&Class)) && RegisterPageClass(Instance) && RegisterSlotChart(Instance) && RegisterGroupDialog(Instance)) {
-        Window = CreateWindowExW(WS_EX_CONTROLPARENT, gacWindowClass, gacTitle, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
-            ScaleLayout(&App, 1160), ScaleLayout(&App, 880), NULL, NULL, Instance, &App);
+        Window = CreateWindowExW(WS_EX_CONTROLPARENT, gacWindowClass, gacTitle, WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+            Work.left + (Work.right - Work.left - iWidth) / 2, Work.top + (Work.bottom - Work.top - iHeight) / 2,
+            iWidth, iHeight, NULL, NULL, Instance, &App);
     }
     if (NULL == Window) {
         MessageBoxW(NULL, L"프로그램 창을 만들 수 없습니다.", gacTitle, MB_OK | MB_ICONERROR);

@@ -84,6 +84,7 @@ typedef struct GroupDialog {
     AreaType Area;
     uint32_t uiSelectedGroup;
     uint32_t uiIssueCount;
+    int32_t iScrollTop;
     bool bApplied;
     bool bDone;
 } GroupDialog_t;
@@ -689,10 +690,10 @@ static bool CreateDialogControls(GroupDialog_t *pDialog)
     pDialog->TerminalApply = CreateDialogControl(pDialog, L"BUTTON", L"단말 수 변경", uiButton, DialogTerminalApply);
     pDialog->EqualTerminals = CreateDialogControl(pDialog, L"BUTTON", L"단말 균등 분배", uiButton, DialogEqualTerminals);
     pDialog->TerminalHint = CreateDialogControl(pDialog, L"STATIC",
-        L"바꾼 그룹만 그 값으로 고정되고, 나머지 자동 그룹이 남은 단말을 나눠 갖습니다. 값을 지우고 [단말 수 변경]을 누르면 자동으로 돌아갑니다.", uiStatic, 0);
+        L"바꾼 그룹만 고정되고 나머지 자동 그룹이 남은 단말을 나눕니다. 값을 지우고 변경하면 자동으로 돌아갑니다.", uiStatic, 0);
     pDialog->SlotLabel = CreateDialogControl(pDialog, L"STATIC", L"", uiStatic | SS_ENDELLIPSIS, 0);
     pDialog->SlotHint = CreateDialogControl(pDialog, L"STATIC",
-        L"아래 격자를 클릭·드래그하면 선택 그룹에 배정하고, 선택 그룹의 칸에서 시작하면 해제합니다. 격자의 맨 아래 줄이 주파수 1입니다.", uiStatic, 0);
+        L"격자를 클릭·드래그하면 배정, 선택 그룹 칸에서 시작하면 해제합니다. 맨 아래 줄이 주파수 1입니다.", uiStatic, 0);
     for (uint32_t uiField = 0; uiField < RangeFieldCount; uiField++) {
         pDialog->aRangeLabels[uiField] = CreateDialogControl(pDialog, L"STATIC", pacRangeLabels[uiField], SS_CENTER | SS_NOPREFIX, 0);
         pDialog->aRangeEdits[uiField] = CreateDialogControl(pDialog, L"EDIT", L"1", uiEdit, 0);
@@ -738,6 +739,22 @@ static bool CreateDialogControls(GroupDialog_t *pDialog)
     return true;
 }
 
+/* The fixed layout needs this client height; a shorter dialog scrolls instead of overlapping its controls. */
+#define DIALOG_LAYOUT_HEIGHT 760
+
+/* Controls are placed in layout coordinates and shifted by the scroll position. */
+static void PlaceDialogControl(const GroupDialog_t *pDialog, HWND Control, int32_t iX, int32_t iY, int32_t iWidth, int32_t iHeight)
+{
+    MoveWindow(Control, iX, iY - pDialog->iScrollTop, iWidth, iHeight, FALSE);
+}
+
+static void UpdateDialogScroll(const GroupDialog_t *pDialog, int32_t iVisible)
+{
+    int32_t iLayout = ScaleDialog(pDialog, DIALOG_LAYOUT_HEIGHT);
+    SCROLLINFO Scroll = { .cbSize = sizeof(Scroll), .fMask = SIF_RANGE | SIF_PAGE, .nMin = 0, .nMax = ((iVisible < iLayout) ? iLayout : iVisible) - 1, .nPage = (uint32_t)iVisible };
+
+    SetScrollInfo(pDialog->Window, SB_VERT, &Scroll, TRUE);
+}
 static void LayoutDialog(GroupDialog_t *pDialog)
 {
     RECT Client;
@@ -762,17 +779,21 @@ static void LayoutDialog(GroupDialog_t *pDialog)
     int32_t iY;
 
     GetClientRect(pDialog->Window, &Client);
+    UpdateDialogScroll(pDialog, Client.bottom);
+    GetClientRect(pDialog->Window, &Client);
+    pDialog->iScrollTop = GetScrollPos(pDialog->Window, SB_VERT);
+    Client.bottom = (Client.bottom < ScaleDialog(pDialog, DIALOG_LAYOUT_HEIGHT)) ? ScaleDialog(pDialog, DIALOG_LAYOUT_HEIGHT) : Client.bottom;
     iWidth = Client.right - 2 * iMargin;
     iBottom = Client.bottom - iMargin;
     iTableWidth = iWidth * 44 / 100;
     iRight = iMargin + iTableWidth + 2 * iGap;
     iRightWidth = Client.right - iMargin - iRight;
 
-    MoveWindow(pDialog->AreaLabel, iMargin, iMargin + ScaleDialog(pDialog, 4), ScaleDialog(pDialog, 84), iLabel, TRUE);
-    MoveWindow(pDialog->AreaSelect, iMargin + ScaleDialog(pDialog, 88), iMargin, ScaleDialog(pDialog, 110), ScaleDialog(pDialog, 120), TRUE);
-    MoveWindow(pDialog->HelpButton, Client.right - iMargin - ScaleDialog(pDialog, 110), iMargin, ScaleDialog(pDialog, 110), iField, TRUE);
-    MoveWindow(pDialog->SummaryLabel, iMargin, ScaleDialog(pDialog, 58), iWidth, iLabel, TRUE);
-    MoveWindow(pDialog->SummaryTable, iMargin, iSummaryTop, iWidth, iSummaryHeight, TRUE);
+    PlaceDialogControl(pDialog, pDialog->AreaLabel, iMargin, iMargin + ScaleDialog(pDialog, 4), ScaleDialog(pDialog, 84), iLabel);
+    PlaceDialogControl(pDialog, pDialog->AreaSelect, iMargin + ScaleDialog(pDialog, 88), iMargin, ScaleDialog(pDialog, 110), ScaleDialog(pDialog, 120));
+    PlaceDialogControl(pDialog, pDialog->HelpButton, Client.right - iMargin - ScaleDialog(pDialog, 110), iMargin, ScaleDialog(pDialog, 110), iField);
+    PlaceDialogControl(pDialog, pDialog->SummaryLabel, iMargin, ScaleDialog(pDialog, 58), iWidth, iLabel);
+    PlaceDialogControl(pDialog, pDialog->SummaryTable, iMargin, iSummaryTop, iWidth, iSummaryHeight);
     {
         const int32_t aiWeights[SummaryColumnCount] = { 10, 18, 16, 15, 9, 11, 21 };
         for (int32_t iColumn = 0; iColumn < SummaryColumnCount; iColumn++) {
@@ -780,50 +801,51 @@ static void LayoutDialog(GroupDialog_t *pDialog)
         }
     }
 
-    MoveWindow(pDialog->GroupStep, iMargin, iStepTop, iTableWidth, iLabel, TRUE);
-    MoveWindow(pDialog->GroupTable, iMargin, iControlTop, iTableWidth, iChartTop - iControlTop - ScaleDialog(pDialog, 14), TRUE);
+    PlaceDialogControl(pDialog, pDialog->GroupStep, iMargin, iStepTop, iTableWidth, iLabel);
+    PlaceDialogControl(pDialog, pDialog->GroupTable, iMargin, iControlTop, iTableWidth, iChartTop - iControlTop - ScaleDialog(pDialog, 14));
     {
-        const int32_t aiWeights[] = { 18, 17, 15, 28, 22 };
+        const int32_t aiWeights[] = { 16, 18, 12, 27, 27 };
         for (int32_t iColumn = 0; iColumn < 5; iColumn++) {
             ListView_SetColumnWidth(pDialog->GroupTable, iColumn, (iTableWidth - ScaleDialog(pDialog, 24)) * aiWeights[iColumn] / 100);
         }
     }
 
     iY = iStepTop;
-    MoveWindow(pDialog->TerminalLabel, iRight, iY, iRightWidth, iLabel, TRUE);
+    PlaceDialogControl(pDialog, pDialog->TerminalLabel, iRight, iY, iRightWidth, iLabel);
     iY = iControlTop;
-    MoveWindow(pDialog->TerminalEdit, iRight, iY, ScaleDialog(pDialog, 90), iField, TRUE);
-    MoveWindow(pDialog->TerminalApply, iRight + ScaleDialog(pDialog, 90) + iGap, iY, ScaleDialog(pDialog, 120), iField, TRUE);
-    MoveWindow(pDialog->EqualTerminals, iRight + ScaleDialog(pDialog, 210) + 2 * iGap, iY, ScaleDialog(pDialog, 130), iField, TRUE);
+    PlaceDialogControl(pDialog, pDialog->TerminalEdit, iRight, iY, ScaleDialog(pDialog, 90), iField);
+    PlaceDialogControl(pDialog, pDialog->TerminalApply, iRight + ScaleDialog(pDialog, 90) + iGap, iY, ScaleDialog(pDialog, 120), iField);
+    PlaceDialogControl(pDialog, pDialog->EqualTerminals, iRight + ScaleDialog(pDialog, 210) + 2 * iGap, iY, ScaleDialog(pDialog, 130), iField);
     iY += iField + ScaleDialog(pDialog, 4);
-    MoveWindow(pDialog->TerminalHint, iRight, iY, iRightWidth, iHint, TRUE);
+    PlaceDialogControl(pDialog, pDialog->TerminalHint, iRight, iY, iRightWidth, iHint);
     iY += iHint + ScaleDialog(pDialog, 6);
-    MoveWindow(pDialog->SlotLabel, iRight, iY, iRightWidth, iLabel, TRUE);
+    PlaceDialogControl(pDialog, pDialog->SlotLabel, iRight, iY, iRightWidth, iLabel);
     iY += iLabel + ScaleDialog(pDialog, 1);
-    MoveWindow(pDialog->SlotHint, iRight, iY, iRightWidth, iHint, TRUE);
+    PlaceDialogControl(pDialog, pDialog->SlotHint, iRight, iY, iRightWidth, iHint);
     iY += iHint + ScaleDialog(pDialog, 4);
     iX = iRight;
     for (uint32_t uiField = 0; uiField < RangeFieldCount; uiField++) {
         int32_t iLabelWidth = (0 == uiField % 2) ? ScaleDialog(pDialog, 60) : iSmallLabel;
-        MoveWindow(pDialog->aRangeLabels[uiField], iX, iY + ScaleDialog(pDialog, 4), iLabelWidth, iLabel, TRUE);
+        PlaceDialogControl(pDialog, pDialog->aRangeLabels[uiField], iX, iY + ScaleDialog(pDialog, 4), iLabelWidth, iLabel);
         iX += iLabelWidth;
-        MoveWindow(pDialog->aRangeEdits[uiField], iX, iY, iEditWidth, iField, TRUE);
+        PlaceDialogControl(pDialog, pDialog->aRangeEdits[uiField], iX, iY, iEditWidth, iField);
         iX += iEditWidth + ScaleDialog(pDialog, 4);
     }
     iY += iField + ScaleDialog(pDialog, 8);
-    MoveWindow(pDialog->AssignButton, iRight, iY, ScaleDialog(pDialog, 150), iField, TRUE);
-    MoveWindow(pDialog->ReleaseButton, iRight + ScaleDialog(pDialog, 150) + iGap, iY, ScaleDialog(pDialog, 170), iField, TRUE);
-    MoveWindow(pDialog->ReleaseOutside, iRight + ScaleDialog(pDialog, 320) + 2 * iGap, iY, iRightWidth - ScaleDialog(pDialog, 320) - 2 * iGap, iField, TRUE);
+    PlaceDialogControl(pDialog, pDialog->AssignButton, iRight, iY, ScaleDialog(pDialog, 150), iField);
+    PlaceDialogControl(pDialog, pDialog->ReleaseButton, iRight + ScaleDialog(pDialog, 150) + iGap, iY, ScaleDialog(pDialog, 170), iField);
+    PlaceDialogControl(pDialog, pDialog->ReleaseOutside, iRight + ScaleDialog(pDialog, 320) + 2 * iGap, iY, iRightWidth - ScaleDialog(pDialog, 320) - 2 * iGap, iField);
     iY += iField + ScaleDialog(pDialog, 8);
-    MoveWindow(pDialog->EqualSlots, iRight, iY, ScaleDialog(pDialog, 130), iField, TRUE);
-    MoveWindow(pDialog->ProportionalSlots, iRight + ScaleDialog(pDialog, 130) + iGap, iY, ScaleDialog(pDialog, 150), iField, TRUE);
-    MoveWindow(pDialog->ClearSlots, iRight + ScaleDialog(pDialog, 280) + 2 * iGap, iY, ScaleDialog(pDialog, 130), iField, TRUE);
+    PlaceDialogControl(pDialog, pDialog->EqualSlots, iRight, iY, ScaleDialog(pDialog, 130), iField);
+    PlaceDialogControl(pDialog, pDialog->ProportionalSlots, iRight + ScaleDialog(pDialog, 130) + iGap, iY, ScaleDialog(pDialog, 150), iField);
+    PlaceDialogControl(pDialog, pDialog->ClearSlots, iRight + ScaleDialog(pDialog, 280) + 2 * iGap, iY, ScaleDialog(pDialog, 130), iField);
 
-    MoveWindow(pDialog->Chart, iMargin, iChartTop, iWidth, iBottom - ScaleDialog(pDialog, 112) - iChartTop, TRUE);
-    MoveWindow(pDialog->Message, iMargin, iBottom - ScaleDialog(pDialog, 104), iWidth, iLabel, TRUE);
-    MoveWindow(pDialog->Issues, iMargin, iBottom - ScaleDialog(pDialog, 76), iWidth - iMargin - ScaleDialog(pDialog, 220), ScaleDialog(pDialog, 76), TRUE);
-    MoveWindow(pDialog->ApplyButton, Client.right - iMargin - ScaleDialog(pDialog, 210), iBottom - iField, ScaleDialog(pDialog, 100), iField, TRUE);
-    MoveWindow(pDialog->CancelButton, Client.right - iMargin - ScaleDialog(pDialog, 100), iBottom - iField, ScaleDialog(pDialog, 100), iField, TRUE);
+    PlaceDialogControl(pDialog, pDialog->Chart, iMargin, iChartTop, iWidth, iBottom - ScaleDialog(pDialog, 112) - iChartTop);
+    PlaceDialogControl(pDialog, pDialog->Message, iMargin, iBottom - ScaleDialog(pDialog, 104), iWidth, iLabel);
+    PlaceDialogControl(pDialog, pDialog->Issues, iMargin, iBottom - ScaleDialog(pDialog, 76), iWidth - iMargin - ScaleDialog(pDialog, 220), ScaleDialog(pDialog, 76));
+    PlaceDialogControl(pDialog, pDialog->ApplyButton, Client.right - iMargin - ScaleDialog(pDialog, 210), iBottom - iField, ScaleDialog(pDialog, 100), iField);
+    PlaceDialogControl(pDialog, pDialog->CancelButton, Client.right - iMargin - ScaleDialog(pDialog, 100), iBottom - iField, ScaleDialog(pDialog, 100), iField);
+    RedrawWindow(pDialog->Window, NULL, NULL, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
 }
 
 static void HandleDialogCommand(GroupDialog_t *pDialog, uint32_t uiCommand, uint32_t uiNotification)
@@ -945,6 +967,36 @@ static LRESULT HandleDialogNotify(GroupDialog_t *pDialog, NMHDR *pHeader)
     return 0;
 }
 
+static void ScrollDialog(GroupDialog_t *pDialog, UINT uiMessage, WPARAM MessageParameter)
+{
+    SCROLLINFO Scroll = { .cbSize = sizeof(Scroll), .fMask = SIF_ALL };
+    int32_t iLine = ScaleDialog(pDialog, 40);
+    int32_t iPosition;
+
+    if (FALSE == GetScrollInfo(pDialog->Window, SB_VERT, &Scroll)) {
+        return;
+    }
+    iPosition = Scroll.nPos;
+    if (WM_MOUSEWHEEL == uiMessage) {
+        iPosition -= GET_WHEEL_DELTA_WPARAM(MessageParameter) * 3 * iLine / WHEEL_DELTA;
+    }
+    else if ((SB_LINEUP == LOWORD(MessageParameter)) || (SB_LINEDOWN == LOWORD(MessageParameter))) {
+        iPosition += (SB_LINEUP == LOWORD(MessageParameter)) ? -iLine : iLine;
+    }
+    else if ((SB_PAGEUP == LOWORD(MessageParameter)) || (SB_PAGEDOWN == LOWORD(MessageParameter))) {
+        iPosition += (SB_PAGEUP == LOWORD(MessageParameter)) ? -(int32_t)Scroll.nPage : (int32_t)Scroll.nPage;
+    }
+    else if ((SB_THUMBTRACK == LOWORD(MessageParameter)) || (SB_THUMBPOSITION == LOWORD(MessageParameter))) {
+        iPosition = Scroll.nTrackPos;
+    }
+    if (iPosition != Scroll.nPos) {
+        Scroll.fMask = SIF_POS;
+        Scroll.nPos = iPosition;
+        SetScrollInfo(pDialog->Window, SB_VERT, &Scroll, TRUE);
+        LayoutDialog(pDialog);
+    }
+}
+
 static LRESULT CALLBACK HandleDialogMessage(HWND Window, UINT uiMessage, WPARAM MessageParameter, LPARAM MessageData)
 {
     GroupDialog_t *pDialog = (GroupDialog_t *)GetWindowLongPtrW(Window, GWLP_USERDATA);
@@ -977,7 +1029,7 @@ static LRESULT CALLBACK HandleDialogMessage(HWND Window, UINT uiMessage, WPARAM 
         {
             MINMAXINFO *pLimits = (MINMAXINFO *)MessageData;
             pLimits->ptMinTrackSize.x = ScaleDialog(pDialog, 940);
-            pLimits->ptMinTrackSize.y = ScaleDialog(pDialog, 800);
+            pLimits->ptMinTrackSize.y = ScaleDialog(pDialog, 520);
         }
         return 0;
 
@@ -987,6 +1039,11 @@ static LRESULT CALLBACK HandleDialogMessage(HWND Window, UINT uiMessage, WPARAM 
 
     case WM_NOTIFY:
         return HandleDialogNotify(pDialog, (NMHDR *)MessageData);
+
+    case WM_VSCROLL:
+    case WM_MOUSEWHEEL:
+        ScrollDialog(pDialog, uiMessage, MessageParameter);
+        return 0;
 
     case WM_SLOTCHART_SELECT:
         HandleChartSelection(pDialog, (const SlotSelection_t *)MessageData);
@@ -1082,7 +1139,7 @@ bool ShowGroupDialog(HWND Owner, const GroupDialogInput_t *pInput, GroupConfig_t
     }
     EnableWindow(Owner, FALSE);
     Window = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT, gacDialogClass, L"그룹 설정",
-        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN,
+        WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME | WS_CLIPCHILDREN | WS_VSCROLL,
         iX, iY, iWidth, iHeight, Owner, NULL, pInput->Instance, pDialog);
     if (NULL == Window) {
         EnableWindow(Owner, TRUE);

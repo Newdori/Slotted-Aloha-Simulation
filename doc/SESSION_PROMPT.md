@@ -12,7 +12,7 @@
 - 구현: C17, Windows Win32 API, GDI, 네이티브 Common Controls.
 - 빌드: Windows x64 MinGW-w64 GCC와 windres. 현재 개발 환경은 GCC 15.2.0, 타깃 `x86_64-w64-mingw32`다.
 - 프로그램 실행과 XLSX 저장에 Excel, Python, Node.js 또는 추가 Office 라이브러리를 요구하지 않는다.
-- 개발 PC의 주 모니터는 세로형 1080×1920이다. 창과 대화상자가 1080px 폭에서 잘리지 않는지 확인한다.
+- 개발 PC의 주 모니터는 세로형 1080×1920이다. 창과 대화상자가 1080px 폭에서 잘리지 않는지 확인한다. 메인 창 최소 980×560, 그룹 설정 창 최소 940×520(배율 비례)이며, 결과 탭(배치 높이 700)과 그룹 설정 창(배치 높이 760)은 그보다 낮으면 세로 스크롤한다. EXE는 Windows 기본 DLL만 가져오므로(msvcrt, 정적 링크) 단독 실행된다.
 
 ```text
 Slotted-Aloha-Simulation/
